@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         티팟 AI 요약 (장기기억용)
 // @namespace    https://teapotchat.com/
-// @version      2.1.4
+// @version      2.2.0
 // @updateURL    https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @downloadURL  https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @description  티팟 채팅을 내 Gemini API로 한국어 장기기억용(최대 1만 자)으로 압축해 팝업으로 보여 준다. 복사해서 붙여 넣는 방식
@@ -14,7 +14,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '2.1.4'; // 헤더의 @version과 같은 값으로 맞출 것 (팝업 제목에 표시)
+    const VERSION = '2.2.0'; // 헤더의 @version과 같은 값으로 맞출 것 (팝업 제목에 표시)
 
     const LS = {
         provider: 'teapot_ext_provider', // 'vertex' | 'aistudio'
@@ -48,7 +48,7 @@
 - 내용
 
 - 제목: 공백 포함 20자 이내. 조사·특수기호 없이 관련 NPC명과 고유명사·핵심 행동을 띄어쓰기로 나열. 유저명은 넣지 않는다. 제목은 항상 []로 감싼다.
-- 내용: \`- \`로 시작, 사건당 1개 항목, 요약체(~함, ~임). 첫머리에 \`MM/DD 시간대(새벽/오전/오후/저녁/밤) 장소\`를 쓴다. 로그에 날짜가 없으면 시간대와 장소만 쓴다.
+- 내용: \`- \`로 시작, 사건당 1개 항목, 요약체(~함, ~임). 첫머리에 \`MM/DD 시간대(새벽/오전/오후/저녁/밤) 장소\`를 쓴다. 로그에 [상태창: 날짜 / 시각 / 장소]가 있으면 그 값을 일시·장소의 기준으로 우선 쓴다(날짜는 값 그대로, 연도가 의미 있으면 포함). 로그에 날짜가 없으면 시간대와 장소만 쓴다.
 - 항목에 들어갈 것(로그에 있을 때만, 없으면 생략):
   - 줄거리: 누가 무엇을 왜 했는지. 관계를 바꿀 만한 작은 행동이나 말도 놓치지 않는다.
   - 인과 사슬: [행동/발화] → [상대의 반응] → [그로 인한 변화]
@@ -117,6 +117,36 @@
             .replace(/\n{3,}/g, '\n\n').trim();
     }
 
+    // 상태창(JSX 컴포넌트)은 격리된 iframe에 그려져서 화면 글자로는 안 읽힌다.
+    // 대신 메시지를 그리는 React 컴포넌트가 들고 있는 원문(text)에서 date/time/location 속성을 읽는다.
+    function getRawText(el) {
+        const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+        if (!key) return '';
+        let f = el[key];
+        for (let i = 0; f && i < 12; i++, f = f.return) {
+            const p = f.memoizedProps;
+            if (p && typeof p.text === 'string' && p.text.length > 0) return p.text;
+        }
+        return '';
+    }
+
+    function extractStatus(raw) {
+        if (!raw) return '';
+        const tag = /<([A-Z]\w*)\s+([\s\S]*?)\/>/g;
+        let m, out = '';
+        while ((m = tag.exec(raw))) {
+            const attrs = {};
+            m[2].replace(/(\w+)="([^"]*)"/g, (_, k, v) => { attrs[k] = v; return ''; });
+            if (!attrs.date && !attrs.time && !attrs.location) continue;
+            const parts = [];
+            if (attrs.date) parts.push('날짜 ' + attrs.date);
+            if (attrs.time) parts.push('시각 ' + attrs.time);
+            if (attrs.location) parts.push('장소 ' + attrs.location);
+            out = parts.join(' / ');
+        }
+        return out;
+    }
+
     // 화면에 보이는 메시지를 위에서 아래로 수집 (목록이 가상화되어 있어도 되게 스크롤하며 모은다)
     async function collectMessages(onProgress) {
         const sc = getScroller();
@@ -131,9 +161,14 @@
                 const idx = [...all].indexOf(el);
                 const key = (holder.getAttribute('data-message-id') || holder.getAttribute('data-turn-key') || 'x') + ':' + el.getAttribute('data-capture-speaker') + ':' + idx;
                 const text = cleanText(el.innerText);
-                if (!text) return;
-                if (!seen.has(key)) { seen.set(key, { role: el.getAttribute('data-capture-speaker'), text }); order.push(key); }
-                else if (text.length > seen.get(key).text.length) seen.get(key).text = text;
+                const status = extractStatus(getRawText(el));
+                if (!text && !status) return;
+                if (!seen.has(key)) { seen.set(key, { role: el.getAttribute('data-capture-speaker'), text, status }); order.push(key); }
+                else {
+                    const cur = seen.get(key);
+                    if (text.length > cur.text.length) cur.text = text;
+                    if (status && !cur.status) cur.status = status;
+                }
             });
         };
 
@@ -167,7 +202,7 @@
         let use = msgs;
         // 한 턴 = 유저 1 + AI 1. 0이면 전체
         if (turns > 0) use = msgs.slice(-turns * 2);
-        const log = use.map(m => (m.role === 'user' ? 'User' : 'Character') + ': ' + m.text).join('\n\n');
+        const log = use.map(m => (m.role === 'user' ? 'User' : 'Character') + ': ' + m.text + (m.status ? '\n[상태창: ' + m.status + ']' : '')).join('\n\n');
         return { log, count: use.length };
     }
 
