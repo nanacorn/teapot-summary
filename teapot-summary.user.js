@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         티팟 AI 요약 (장기기억용)
 // @namespace    https://teapotchat.com/
-// @version      2.1.1
+// @version      2.1.2
 // @updateURL    https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @downloadURL  https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @description  티팟 채팅을 내 Gemini API로 한국어 장기기억용(최대 1만 자)으로 압축해 팝업으로 보여 준다. 복사해서 붙여 넣는 방식
@@ -13,6 +13,8 @@
 
 (function () {
     'use strict';
+
+    const VERSION = '2.1.2'; // 헤더의 @version과 같은 값으로 맞출 것 (팝업 제목에 표시)
 
     const LS = {
         provider: 'teapot_ext_provider', // 'vertex' | 'aistudio'
@@ -286,7 +288,7 @@ ${chatLog}
         overlay.className = 'tp-ext-overlay';
         overlay.innerHTML = `
             <div class="tp-ext-modal">
-                <h3>✨ AI 요약 → 장기기억 (복사해서 붙여 넣기)</h3>
+                <h3>✨ AI 요약 → 장기기억 (복사해서 붙여 넣기) <span style="font-size:12px;font-weight:normal;color:#888">v${VERSION}</span></h3>
                 <div id="tp-top">
                     <div class="tp-ext-row">
                         <div style="flex:1.2"><label>API</label><select id="tp-provider"><option value="vertex" ${savedProvider === 'vertex' ? 'selected' : ''}>Vertex (Express 키)</option><option value="aistudio" ${savedProvider === 'aistudio' ? 'selected' : ''}>AI Studio</option></select></div>
