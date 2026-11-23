@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         티팟 AI 요약 (장기기억용)
 // @namespace    https://teapotchat.com/
-// @version      2.1.2
+// @version      2.1.4
 // @updateURL    https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @downloadURL  https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @description  티팟 채팅을 내 Gemini API로 한국어 장기기억용(최대 1만 자)으로 압축해 팝업으로 보여 준다. 복사해서 붙여 넣는 방식
@@ -14,7 +14,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '2.1.2'; // 헤더의 @version과 같은 값으로 맞출 것 (팝업 제목에 표시)
+    const VERSION = '2.1.4'; // 헤더의 @version과 같은 값으로 맞출 것 (팝업 제목에 표시)
 
     const LS = {
         provider: 'teapot_ext_provider', // 'vertex' | 'aistudio'
@@ -211,14 +211,27 @@ ${chatLog}
             safetySettings: ['HARM_CATEGORY_HATE_SPEECH', 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_DANGEROUS_CONTENT']
                 .map(category => ({ category, threshold: 'BLOCK_NONE' })),
         };
-        const res = await fetch(url, {
+        const post = u => fetch(u, {
             method: 'POST',
             headers: isVertex ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
             body: JSON.stringify(body),
         });
+        let res = await post(url);
+        let errJson = null;
+        if (!res.ok) { try { errJson = await res.clone().json(); } catch (_) {} }
+        // Express 키가 모델이 없는 지역(예: asia-southeast1)으로 보내지면 404가 난다.
+        // 오류 문구에서 프로젝트 번호를 읽어 global 지역 주소로 한 번 다시 시도한다.
+        if (isVertex && res.status === 404 && errJson) {
+            const mm = String(errJson.error?.message || '').match(/projects\/(\d+)\/locations\/(?!global)[\w-]+/);
+            if (mm) {
+                res = await post(`https://aiplatform.googleapis.com/v1/projects/${mm[1]}/locations/global/publishers/google/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`);
+                errJson = null;
+                if (!res.ok) { try { errJson = await res.clone().json(); } catch (_) {} }
+            }
+        }
         if (!res.ok) {
             let msg = (isVertex ? 'Vertex' : 'AI Studio') + ' API 에러 (' + res.status + ')';
-            try { const j = await res.json(); msg = (j.error?.message || msg) + ' [' + res.status + ']'; } catch (_) {}
+            if (errJson) msg = (errJson.error?.message || msg) + ' [' + res.status + ']';
             if (isVertex && res.status === 401) msg += ' — Vertex "Express 모드" API 키인지 확인하세요. 서비스 계정 JSON은 쓸 수 없습니다.';
             throw new Error(msg);
         }
@@ -248,6 +261,8 @@ ${chatLog}
             .tp-ext-mbtn { padding:9px 20px; border-radius:8px; border:1px solid #ddd; background:#fff; color:#222; cursor:pointer; font-size:14px; font-weight:600; }
             .tp-ext-mbtn:disabled { opacity:.5; cursor:not-allowed; }
             .tp-ext-mbtn-p { background:#222; color:#fff; border-color:#222; }
+            .tp-ext-mbtn-g { background:#00C774 !important; color:#fff !important; border-color:#00C774 !important; padding:9px 26px; font-size:15px; font-weight:700; }
+            .tp-ext-mbtn-g:hover:not(:disabled) { background:#00b068 !important; }
             .tp-ext-count { font-size:12px; font-weight:normal; color:#777; }
             .tp-ext-over { color:#e74c3c !important; font-weight:700; }
             .tp-ext-link { font-size:12px; background:none; border:1px solid #ddd; padding:3px 8px; border-radius:4px; cursor:pointer; color:#222; }
@@ -312,7 +327,7 @@ ${chatLog}
                     <div class="tp-ext-hint" id="tp-hint"></div>
                 </div>
                 <div class="tp-ext-btns">
-                    <div style="display:flex;gap:8px"><button class="tp-ext-mbtn" id="tp-gen">요약 생성</button></div>
+                    <div style="display:flex;gap:8px"><button class="tp-ext-mbtn tp-ext-mbtn-g" id="tp-gen">요약 생성</button></div>
                     <div style="display:flex;gap:8px"><button class="tp-ext-mbtn" id="tp-cancel">닫기</button><button class="tp-ext-mbtn tp-ext-mbtn-p" id="tp-copy">복사</button></div>
                 </div>
             </div>`;
