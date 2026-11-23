@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         티팟 AI 요약 (장기기억용)
 // @namespace    https://teapotchat.com/
-// @version      2.1.0
+// @version      2.1.1
 // @updateURL    https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @downloadURL  https://raw.githubusercontent.com/nanacorn/teapot-summary/main/teapot-summary.user.js
 // @description  티팟 채팅을 내 Gemini API로 한국어 장기기억용(최대 1만 자)으로 압축해 팝업으로 보여 준다. 복사해서 붙여 넣는 방식
@@ -334,6 +334,11 @@ ${chatLog}
             curProvider = el('tp-provider').value;
             el('tp-key').value = savedKeys[curProvider] || '';
         };
+        // 모델 칸: 목록은 입력값과 맞는 것만 보여 주므로, 누르면 비워서 전체 목록을 띄운다
+        const modelEl = el('tp-model');
+        let modelBefore = modelEl.value;
+        modelEl.addEventListener('focus', () => { modelBefore = modelEl.value; modelEl.value = ''; });
+        modelEl.addEventListener('blur', () => { if (!modelEl.value.trim()) modelEl.value = modelBefore; });
         result.addEventListener('input', updateCount);
         el('tp-limit').addEventListener('input', updateCount);
 
